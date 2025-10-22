@@ -2,224 +2,284 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
 import random
+from typing import Dict, List
 
-# -------------------- Classe Account --------------------
+DEFAULT_BALANCE: float = 2000.0
+DEFAULT_LIMIT: float = 1000.0
+
 class Account:
-    """Classe représentant un compte bancaire"""
-    def __init__(self, name, account_number=None, balance=2000, plafond=1000):
-        """
-        Initialise un compte avec :
-        - name : nom du titulaire
-        - account_number : numéro de compte (généré si None)
-        - balance : solde initial
-        - plafond : montant maximum par opération
-        """
-        self.name = name
-        self.account_number = account_number or self._generate_account_number()
-        self.balance = balance
-        self.plafond = plafond
-        self.liste_historique = [] 
+    def __init__(self, holder_name: str, balance: float = DEFAULT_BALANCE, limit: float = DEFAULT_LIMIT) -> None:
+        self.holder_name: str = holder_name
+        self.account_number: int = random.randint(1000000000, 9999999999)
+        self.balance: float = float(balance)
+        self.limit: float = float(limit)
+        self.liste_historique: List[dict] = []
 
-    def _generate_account_number(self):
-        """Génère un numéro de compte aléatoire à 10 chiffres."""
-        return random.randint(1000000000, 9999999999)
+    def withdraw(self, amount: float) -> bool:
+        amount = float(amount)
+        if amount <= 0:
+            messagebox.showerror("Erreur", "Le montant doit être positif.")
+            return False
+        if amount > self.limit:
+            messagebox.showwarning("Limite dépassée", f"Le montant dépasse la limite de {self.limit:.2f} €.")
+            return False
+        if amount > self.balance:
+            messagebox.showwarning("Solde insuffisant", f"Solde insuffisant ({self.balance:.2f} €).")
+            return False
+        self.balance -= amount
+        self._historiser("retrait", amount)
+        return True
 
-    def withdraw(self, montant):
-        """Retirer de l'argent si solde suffisant et montant <= plafond."""
-        if montant > self.balance:
-            print(f"Solde insuffisant pour retirer {montant} €.")
-        elif montant > self.plafond:
-            print(f"Montant dépasse le plafond de {self.plafond} €.")
-        else:
-            self.balance -= montant
-            self.historique("retrait", montant)
-            print(f"Vous avez retiré {montant} €, solde restant : {self.balance} €")
+    def deposit(self, amount: float) -> bool:
+        amount = float(amount)
+        if amount <= 0:
+            messagebox.showerror("Erreur", "Le montant doit être positif.")
+            return False
+        self.balance += amount
+        self._historiser("depot", amount)
+        return True
 
-    def deposit(self, montant):
-        """Ajouter de l'argent au compte."""
-        self.balance += montant
-        self.historique("depot", montant)
-        print(f"Vous avez ajouté {montant} €, solde actuel : {self.balance} €")
+    def transfer(self, amount: float, target_account: "Account") -> bool:
+        amount = float(amount)
+        if self.withdraw(amount):
+            target_account.deposit(amount)
+            self._historiser("transfert_sortant", amount)
+            target_account._historiser("transfert_entrant", amount)
+            return True
+        return False
 
-    def transfere(self, montant, autre_compte):
-        """
-        Transférer de l'argent vers un autre compte.
-        Vérifie solde et plafond.
-        """
-        if montant > self.balance:
-            print("Transfert impossible : solde insuffisant.")
-        elif montant > self.plafond:
-            print(f"Transfert impossible : montant dépasse le plafond de {self.plafond} €")
-        else:
-            self.balance -= montant
-            autre_compte.deposit(montant)
-            self.historique("transfert_sortant", montant)
-            autre_compte.historique("transfert_entrant", montant)
-            print(f"Transfert de {montant} € effectué de {self.name} à {autre_compte.name}.")
+    def set_limit(self, new_limit: float) -> bool:
+        new_limit = float(new_limit)
+        if new_limit <= 0:
+            messagebox.showerror("Erreur", "La limite doit être strictement positive.")
+            return False
+        self.limit = new_limit
+        self._historiser("modif_plafond", new_limit)
+        return True
 
-    def historique(self, type_op, montant):
-        """Enregistre une opération dans l'historique."""
+    def _historiser(self, type_op: str, montant: float) -> None:
         self.liste_historique.append({
             "type": type_op,
-            "montant": montant,
+            "montant": float(montant),
             "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "solde_apres": self.balance
+            "solde_apres": float(self.balance),
         })
 
-    def __str__(self):
-        """Affiche les infos principales du compte."""
-        return f"{self.name} ({self.account_number}) - Solde : {self.balance} € - Plafond : {self.plafond} €"
+    def __str__(self) -> str:
+        return (
+            f"{self.holder_name} ({self.account_number})\n"
+            f"Solde : {self.balance:.2f} €\n"
+            f"Plafond de retrait : {self.limit:.2f} €"
+        )
 
-
-# -------------------- Interface graphique --------------------
 class BankApp(tk.Tk):
-    """Application bancaire avec interface graphique simple."""
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
-        self.title("Bank Account")  # Titre de la fenêtre
-        self.geometry("500x300")      # Taille de la fenêtre
-
-        # Comptes disponibles au lancement
-        self.accounts = {
+        self.title("Gestion de Comptes Bancaires")
+        self.geometry("680x400")
+        self.accounts: Dict[str, Account] = {
             "Ross": Account("Ross"),
-            "Rachel": Account("Rachel")
+            "Rachel": Account("Rachel"),
         }
+        self._build_ui()
+        self._select_first_account()
 
-        self._build_ui()  # Construire l'interface
-
-    def _build_ui(self):
-        """Crée tous les widgets"""
-        frame = ttk.Frame(self, padding=10)
-        frame.pack(fill=tk.BOTH, expand=True)
-
-        # --- Liste des comptes ---
-        ttk.Label(frame, text="Comptes:").grid(row=0, column=0, sticky="w")
+    def _build_ui(self) -> None:
+        container = ttk.Frame(self, padding=10)
+        container.pack(fill=tk.BOTH, expand=True)
+        left = ttk.Frame(container)
+        left.grid(row=0, column=0, sticky="nsw", padx=(0, 10))
+        ttk.Label(left, text="Comptes :").pack(anchor="w")
         self.acc_var = tk.StringVar(value=list(self.accounts.keys()))
-        self.listbox = tk.Listbox(frame, listvariable=self.acc_var, height=5, exportselection=False)
-        self.listbox.grid(row=1, column=0, sticky="ns")
-        self.listbox.bind("<<ListboxSelect>>", lambda e: self.on_show_info())
-        self.listbox.selection_set(0)
-
-        # --- Infos du compte sélectionné ---
-        ttk.Label(frame, text="Infos du compte:").grid(row=0, column=1, sticky="w")
-        self.info_text = tk.Text(frame, width=40, height=5, state="disabled")
-        self.info_text.grid(row=1, column=1, sticky="n")
-
-        # --- Montant à déposer/retraiter/transférer ---
-        ttk.Label(frame, text="Montant (€):").grid(row=2, column=0, sticky="w", pady=(10,0))
-        self.amount_entry = ttk.Entry(frame)
-        self.amount_entry.grid(row=2, column=1, sticky="we", pady=(10,0))
-
-        # --- Boutons d'action ---
-        ttk.Button(frame, text="➕ Déposer", command=self.on_deposit).grid(row=3, column=0, sticky="we", pady=5)
-        ttk.Button(frame, text="➖ Retirer", command=self.on_withdraw).grid(row=3, column=1, sticky="we", pady=5)
-        ttk.Button(frame, text="Transférer", command=self.on_transfer).grid(row=4, column=0, sticky="we", pady=5)
-        ttk.Button(frame, text="Historique", command=self.on_show_history).grid(row=4, column=1, sticky="we", pady=5)
-
-        # --- Status en bas de fenêtre ---
+        self.listbox = tk.Listbox(left, listvariable=self.acc_var, height=10, exportselection=False, width=22)
+        self.listbox.pack(fill="y")
+        self.listbox.bind("<<ListboxSelect>>", lambda _e: self._refresh_info_panel())
+        actions = ttk.Frame(left)
+        actions.pack(fill="x", pady=(8, 0))
+        ttk.Button(actions, text="➕ Ajouter compte", command=self._on_add_account).grid(row=0, column=0, sticky="we", padx=(0, 6))
+        ttk.Button(actions, text="🗑️ Supprimer compte", command=self._on_delete_account).grid(row=0, column=1, sticky="we")
+        right = ttk.Frame(container)
+        right.grid(row=0, column=1, sticky="nsew")
+        container.columnconfigure(1, weight=1)
+        ttk.Label(right, text="Infos du compte :").grid(row=0, column=0, columnspan=2, sticky="w")
+        self.info_text = tk.Text(right, width=50, height=7, state="disabled")
+        self.info_text.grid(row=1, column=0, columnspan=2, sticky="we")
+        ttk.Label(right, text="Montant (€) :").grid(row=2, column=0, sticky="w", pady=(10, 0))
+        self.amount_entry = ttk.Entry(right)
+        self.amount_entry.grid(row=2, column=1, sticky="we", pady=(10, 0))
+        right.columnconfigure(1, weight=1)
+        ttk.Button(right, text="➕ Dépôt", command=self._on_deposit).grid(row=3, column=0, sticky="we", pady=5)
+        ttk.Button(right, text="➖ Retrait", command=self._on_withdraw).grid(row=3, column=1, sticky="we", pady=5)
+        ttk.Button(right, text="🔁 Transférer", command=self._on_transfer).grid(row=4, column=0, sticky="we", pady=5)
+        ttk.Button(right, text="📜 Historique", command=self._on_show_history).grid(row=4, column=1, sticky="we", pady=5)
+        ttk.Button(right, text="⚙️ Modifier le plafond", command=self._on_set_limit).grid(row=5, column=0, sticky="we", pady=5)
         self.status = ttk.Label(self, relief=tk.SUNKEN, anchor="w")
         self.status.pack(side=tk.BOTTOM, fill=tk.X)
 
-        # Affiche automatiquement les infos du premier compte
-        self.on_show_info()
+    def _select_first_account(self) -> None:
+        if self.listbox.size() > 0:
+            self.listbox.selection_set(0)
+        self._refresh_info_panel()
 
-    # -------------------- Fonctions utilitaires --------------------
-    def selected_account(self):
-        """Retourne le compte actuellement sélectionné dans la listbox."""
+    def _selected_account(self) -> Account:
         sel = self.listbox.curselection()
-        if not sel:
-            return None
         name = self.listbox.get(sel[0])
         return self.accounts.get(name)
 
-    def on_show_info(self):
-        """Affiche les infos du compte sélectionné dans la zone de texte."""
-        acc = self.selected_account()
+    def _refresh_accounts_list(self, select_name: str = None) -> None:
+        names = list(self.accounts.keys())
+        self.acc_var.set(names)
+        self._refresh_info_panel()
+
+    def _refresh_info_panel(self) -> None:
+        acc = self._selected_account()
+        self.info_text.config(state="normal")
+        self.info_text.delete("1.0", tk.END)
         if acc:
-            self.info_text.configure(state="normal")
-            self.info_text.delete("1.0", tk.END)
             self.info_text.insert(tk.END, str(acc))
-            self.status.config(text=f"Affichage : {acc.name}")
+            self.status.config(text=f"Compte sélectionné : {acc.holder_name}")
 
-    def on_deposit(self):
-        """Effectue un dépôt sur le compte sélectionné."""
-        acc = self.selected_account()
-        if acc:
+    def _on_add_account(self) -> None:
+        def create_account() -> None:
+            name = entry_name.get()
+            if not name:
+                messagebox.showerror("Erreur", "Le nom du titulaire est obligatoire.")
+                return
             try:
-                amount = float(self.amount_entry.get())
-                acc.deposit(amount)
-                self.on_show_info()
-                self.status.config(text=f"{amount} € déposés sur {acc.name}")
-                self.amount_entry.delete(0, tk.END)
+                balance = float(entry_balance.get())
             except ValueError:
-                messagebox.showerror("Erreur", "Montant invalide")
+                messagebox.showerror("Erreur", "Solde initial invalide.")
+                return
+            self.accounts[name] = Account(name, balance, DEFAULT_LIMIT)
+            self._refresh_accounts_list(select_name=name)
+            self.status.config(text=f"✅ Compte '{name}' créé (solde {balance:.2f} €, plafond {DEFAULT_LIMIT:.2f} €).")
+            add_win.destroy()
 
-    def on_withdraw(self):
-        """Effectue un retrait sur le compte sélectionné."""
-        acc = self.selected_account()
-        if acc:
+        add_win = tk.Toplevel(self)
+        add_win.title("➕ Ajouter un compte")
+        add_win.geometry("340x210")
+        add_win.resizable(False, False)
+        ttk.Label(add_win, text="Nom du titulaire :").pack(pady=(12, 4))
+        entry_name = ttk.Entry(add_win)
+        entry_name.pack(pady=4, fill="x", padx=16)
+        entry_name.focus_set()
+        ttk.Label(add_win, text="Solde initial (€) :").pack(pady=(10, 4))
+        entry_balance = ttk.Entry(add_win)
+        entry_balance.insert(0, f"{DEFAULT_BALANCE:.0f}")
+        entry_balance.pack(pady=4, fill="x", padx=16)
+        buttons = ttk.Frame(add_win)
+        buttons.pack(pady=14)
+        ttk.Button(buttons, text="✅ Valider / Créer", command=create_account).grid(row=0, column=0, padx=6, ipadx=6, ipady=3)
+        ttk.Button(buttons, text="❌ Annuler", command=add_win.destroy).grid(row=0, column=1, padx=6, ipadx=6, ipady=3)
+
+    def _on_delete_account(self) -> None:
+        acc = self._selected_account()
+        if not acc:
+            messagebox.showwarning("Attention", "Aucun compte sélectionné.")
+            return
+        if not messagebox.askyesno("Confirmation", f"Supprimer le compte '{acc.holder_name}' ?"):
+            return
+        del self.accounts[acc.holder_name]
+        self._refresh_accounts_list()
+        self.status.config(text=f"🗑️ Compte '{acc.holder_name}' supprimé.")
+
+    def _on_deposit(self) -> None:
+        acc = self._selected_account()
+        try:
+            amt = float(self.amount_entry.get())
+        except ValueError:
+            messagebox.showerror("Erreur", "Montant invalide.")
+            return
+        if acc.deposit(amt):
+            self.status.config(text=f"💰 {amt:.2f} € déposés sur {acc.holder_name}.")
+            self._refresh_info_panel()
+        self.amount_entry.delete(0, tk.END)
+
+    def _on_withdraw(self) -> None:
+        acc = self._selected_account()
+        try:
+            amt = float(self.amount_entry.get())
+        except ValueError:
+            messagebox.showerror("Erreur", "Montant invalide.")
+            return
+        if acc.withdraw(amt):
+            self.status.config(text=f"💸 {amt:.2f} € retirés de {acc.holder_name}.")
+            self._refresh_info_panel()
+        self.amount_entry.delete(0, tk.END)
+
+    def _on_transfer(self) -> None:
+        source = self._selected_account()
+        def do_transfer() -> None:
             try:
-                amount = float(self.amount_entry.get())
-                acc.withdraw(amount)
-                self.on_show_info()
-                self.status.config(text=f"{amount} € retirés de {acc.name}")
-                self.amount_entry.delete(0, tk.END)
+                amt = float(entry_amount.get())
             except ValueError:
-                messagebox.showerror("Erreur", "Montant invalide")
-
-    def on_transfer(self):
-        """Ouvre une petite fenêtre pour effectuer un transfert vers un autre compte."""
-        acc = self.selected_account()
-
+                messagebox.showerror("Erreur", "Montant invalide.")
+                return
+            sel = target_list.curselection()
+            if not sel:
+                messagebox.showwarning("Erreur", "Choisissez un compte destinataire.")
+                return
+            target_name = targets[sel[0]]
+            target_acc = self.accounts[target_name]
+            if source.transfer(amt, target_acc):
+                self.status.config(text=f"🔁 {amt:.2f} € transférés de {source.holder_name} à {target_acc.holder_name}.")
+                self._refresh_info_panel()
+                transfer_win.destroy()
 
         transfer_win = tk.Toplevel(self)
         transfer_win.title("Transfert")
-        transfer_win.geometry("250x150")
-
-        ttk.Label(transfer_win, text="Montant à transférer:").pack(pady=5)
+        transfer_win.geometry("280x190")
+        transfer_win.resizable(False, False)
+        ttk.Label(transfer_win, text="Montant (€) :").pack(pady=(10, 4))
         entry_amount = ttk.Entry(transfer_win)
-        entry_amount.pack(pady=5, fill="x", padx=10)
-
-        ttk.Label(transfer_win, text="Vers le compte:").pack(pady=5)
-        targets = [name for name in self.accounts if name != acc.name]
+        entry_amount.pack(pady=4, fill="x", padx=12)
+        ttk.Label(transfer_win, text="Vers le compte :").pack(pady=(10, 4))
+        targets = [name for name in self.accounts if name != source.holder_name]
         target_var = tk.StringVar(value=targets)
-        target_list = tk.Listbox(transfer_win, listvariable=target_var, height=len(targets), exportselection=False)
-        target_list.pack(padx=10)
+        target_list = tk.Listbox(transfer_win, listvariable=target_var, height=min(6, len(targets)), exportselection=False)
+        target_list.pack(padx=12, fill="x")
+        ttk.Button(transfer_win, text="Transférer", command=do_transfer).pack(pady=12)
 
-        def do_transfer():
-            try:
-                amount = float(entry_amount.get())
-                sel = target_list.curselection()
-                if not sel:
-                    messagebox.showwarning("Erreur", "Sélectionnez un compte destinataire")
-                    return
-                target_acc = self.accounts[targets[sel[0]]]
-                acc.transfere(amount, target_acc)
-                self.on_show_info()
-                self.status.config(text=f"{amount} € transférés de {acc.name} à {target_acc.name}")
-                transfer_win.destroy()
-            except ValueError:
-                messagebox.showerror("Erreur", "Montant invalide")
-
-        ttk.Button(transfer_win, text="Transférer", command=do_transfer).pack(pady=10)
-
-    def on_show_history(self):
-        """Affiche l'historique des opérations du compte sélectionné."""
-        acc = self.selected_account()
+    def _on_show_history(self) -> None:
+        acc = self._selected_account()
         hist_win = tk.Toplevel(self)
-        hist_win.title(f"Historique - {acc.name}")
-        hist_win.geometry("400x200")
+        hist_win.title(f"Historique — {acc.holder_name}")
+        hist_win.geometry("460x260")
+        hist_win.resizable(True, True)
         hist_list = tk.Listbox(hist_win)
         hist_list.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
+        if not acc.liste_historique:
+            hist_list.insert(tk.END, "Aucune opération enregistrée.")
+            return
         for op in acc.liste_historique:
             hist_list.insert(
                 tk.END,
-                f"{op['date']} | {op['type']} | {op['montant']} € | Solde: {op['solde_apres']} €"
+                f"{op['date']} | {op['type']} | {op['montant']:.2f} € | Solde: {op['solde_apres']:.2f} €"
             )
 
+    def _on_set_limit(self) -> None:
+        acc = self._selected_account()
+        def apply_limit() -> None:
+            try:
+                new_limit = float(entry_limit.get())
+            except ValueError:
+                messagebox.showerror("Erreur", "Montant invalide.")
+                return
+            if acc.set_limit(new_limit):
+                self.status.config(text=f"⚙️ Nouveau plafond de {acc.holder_name} : {new_limit:.2f} €")
+                self._refresh_info_panel()
+                limit_win.destroy()
 
-# -------------------- Lancer l'application --------------------
+        limit_win = tk.Toplevel(self)
+        limit_win.title("Modifier le plafond")
+        limit_win.geometry("260x140")
+        limit_win.resizable(False, False)
+        ttk.Label(limit_win, text="Nouvelle limite (€) :").pack(pady=(12, 6))
+        entry_limit = ttk.Entry(limit_win)
+        entry_limit.insert(0, f"{acc.limit:.0f}")
+        entry_limit.pack(pady=4, fill="x", padx=14)
+        ttk.Button(limit_win, text="Appliquer", command=apply_limit).pack(pady=12)
+
 if __name__ == "__main__":
     app = BankApp()
     app.mainloop()
