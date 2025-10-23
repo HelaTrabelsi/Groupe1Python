@@ -15,7 +15,6 @@ import tkinter as tk                         # Tkinter : base de l'interface gra
 from tkinter import ttk, messagebox          # ttk (widgets modernes) + boîtes de dialogue
 from datetime import datetime                # Pour dater les opérations de l’historique
 import random                                # Pour générer des numéros de compte aléatoires
-from typing import Dict, List                # Annotations de types (lisibilité)
 
 # --- Constantes par défaut ---
 DEFAULT_BALANCE: float = 2000.0              # Solde initial par défaut
